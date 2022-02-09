@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raymarcher</title>
+</head>
+<body>
+    <canvas id="marcher"></canvas>
+    <script type="text/x-fragment-shader" id="discard">
+        #version 300 es
+        void main() { discard; }
+    </script>
+    <script type="text/x-fragment-shader" id="marcher">
+        uniform vec3 u_Resolution;
+        uniform vec4 u_Mouse;
+        uniform float u_Time;
+    </script>
+    <script type="module" src="marcher.js"></script>
+</body>
+</html>
