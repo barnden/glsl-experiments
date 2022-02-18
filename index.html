@@ -6,23 +6,32 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Raymarcher</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+
+            background: #16161D;
+            height: 100%;
+            width: 100%;
+
+            display: flex;
+
+            justify-content: center;
+            align-items: center;
+        }
+    </style>
 </head>
 
 <body>
     <canvas id="marcher" width="600" height="600"></canvas>
-    <script type="text/x-fragment-shader" id="discard">
-        #version 300 es
-        precision highp float;
-
-        in vec3 i_Position;
-
-        void main() {
-            gl_Position = vec4(i_Position, 1.);
-        }
-    </script>
+    <script type="text/x-fragment-shader" id="discard">#version 300 es
+precision highp float;in vec3 i_Position;void main(){gl_Position=vec4(i_Position,1.);}</script>
     <script type="text/x-fragment-shader" id="frag">
         #version 300 es
         precision highp float;
+
+        #define EPSILON 0.0001
 
         uniform vec2 u_Resolution;
         uniform vec4 u_Mouse;
@@ -31,8 +40,71 @@
 
         out vec4 o_FragColor;
 
-        void main() {
-            o_FragColor = vec4(abs(cos(u_Time)), 1., 0., 1.);
+        float map(in vec3 pos)
+        {
+            float sphere = length(pos) - .25;
+
+            float plane = pos.y + .25;
+
+            return min(sphere, plane);
+        }
+
+        vec3 get_normal(in vec3 pos)
+        {
+            vec2 e = vec2(EPSILON, 0.);
+            return normalize(vec3(map(pos + e.xyy) - map(pos - e.xyy),
+                                  map(pos + e.yxy) - map(pos - e.yxy),
+                                  map(pos + e.yyx) - map(pos - e.yyx)));
+        }
+
+        float find_intersection(in vec3 eye, in vec3 dir)
+        {
+            float t = 0.;
+            for (int i = 0; i < 100; i++) {
+                vec3 pos = eye + t * dir;
+
+                float h = map(pos);
+
+                if (h < EPSILON)
+                    break;
+
+                t += h;
+
+                if (t > 20.)
+                    break;
+            }
+
+            if (t > 20.)
+                return -1.;
+
+            return t;
+        }
+
+        void main()
+        {
+            vec2 uv = (2. * gl_FragCoord.xy - u_Resolution.xy) / u_Resolution.xy;
+
+            vec3 eye = vec3(0., 0., 2.);
+            vec3 dir = normalize(vec3(uv, -1.5));
+
+            vec3 col = vec3(0.);
+            float t = find_intersection(eye, dir);
+
+            if (t > 0.) {
+                vec3 pos = eye + t * dir;
+                vec3 N = get_normal(pos);
+                vec3 sun = vec3(.8, .4, .2);
+                float sun_dif = clamp(dot(sun, N), 0., 1.);
+                float sun_sha = step(find_intersection(pos + EPSILON * N, sun), 0.);
+                float sky_dif = clamp(.5 + .5 * dot(vec3(.0, 1., .0), N), 0., 1.);
+
+                col = vec3(1., .8, .6) * sun_dif * sun_sha
+                    + vec3(0., .05, .2) * sky_dif;
+            }
+
+            col = pow(col, vec3(1. / 2.2));
+
+            o_FragColor = vec4(col, 1.);
         }
     </script>
     <script type="module" src="marcher.js"></script>
