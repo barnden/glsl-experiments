@@ -1,22 +1,41 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Raymarcher</title>
 </head>
+
 <body>
-    <canvas id="marcher"></canvas>
+    <canvas id="marcher" width="600" height="600"></canvas>
     <script type="text/x-fragment-shader" id="discard">
         #version 300 es
-        void main() { discard; }
+        precision highp float;
+
+        in vec3 i_Position;
+
+        void main() {
+            gl_Position = vec4(i_Position, 1.);
+        }
     </script>
-    <script type="text/x-fragment-shader" id="marcher">
-        uniform vec3 u_Resolution;
+    <script type="text/x-fragment-shader" id="frag">
+        #version 300 es
+        precision highp float;
+
+        uniform vec2 u_Resolution;
         uniform vec4 u_Mouse;
         uniform float u_Time;
+        uniform int u_Frame;
+
+        out vec4 o_FragColor;
+
+        void main() {
+            o_FragColor = vec4(abs(cos(u_Time)), 1., 0., 1.);
+        }
     </script>
     <script type="module" src="marcher.js"></script>
 </body>
+
 </html>

@@ -6,7 +6,11 @@ class WebGL2Renderer {
             this.canvas = canvas
 
         this.gl = this.canvas.getContext("webgl2", gl2options)
-        this.frame_time = 1000 / target_frame_rate
+        this.frameTime = 1000 / target_frame_rate
+        this.frameCount = 0
+        this.time = 0
+        this.lastFrameTime = performance.now()
+        this.startTime = this.lastFrameTime
 
         if (this.gl === null)
             throw "[WebGL2Renderer] WebGL2 context is not supported by the browser."
@@ -69,7 +73,7 @@ class WebGL2Renderer {
 
         this.gl.linkProgram(program)
 
-        if (!this.gl.getShaderParameter(shader, this.gl.LINK_STATUS))
+        if (!this.gl.getProgramParameter(program, this.gl.LINK_STATUS))
             throw ("[WebGL2Renderer] Failed to link program.\n\n" + this.gl.getShaderInfoLog(shader))
 
         return program
@@ -82,18 +86,21 @@ class WebGL2Renderer {
         this.renderHooks.push(callback)
     }
 
-    render() {
+    render = _ => {
         const now = performance.now()
-        const delta = now - this.last_frame_time
+        const delta = now - this.lastFrameTime
 
-        if (delta < this.frame_time)
+        if (delta < this.frameTime)
             return requestAnimationFrame(this.render)
 
         this.gl.clearColor(0., 0., 0., 0.)
         this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT)
 
         for (let hook of this.renderHooks)
-            hook();
+            hook(this.gl);
+
+        this.time = (now - this.startTime) / 1000
+        this.frameCount++
 
         requestAnimationFrame(this.render)
     }
