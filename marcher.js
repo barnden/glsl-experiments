@@ -7,10 +7,10 @@ class Marcher {
 
         this.setup()
 
-        this.renderer.render()
-
         this.mousePosition = [0, 0]
         this.mouseInfo = [0, 0]
+
+        this.renderer.render()
     }
 
     setup() {
