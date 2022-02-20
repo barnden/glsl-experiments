@@ -42,7 +42,6 @@ precision highp float;in vec3 i_Position;void main(){gl_Position=vec4(i_Position
 
         out vec4 o_FragColor;
 
-
         // Standard sub/union/intersect
         float sd_minus(float d1, float d2) { return max(-d1, d2); }
         float sd_union(float d1, float d2) { return min(d1, d2); }
@@ -285,13 +284,13 @@ precision highp float;in vec3 i_Position;void main(){gl_Position=vec4(i_Position
             float res = 1.;
             float t = EPSILON;
 
-            for(float t = EPSILON; t < MAX_T;) {
+            for (int i = 0; i < 84 && t < MAX_T; i++) {
                 float h = map(eye + t * dir).x;
 
                 if (h < EPSILON)
                     return 0.;
 
-                res = min(res, 40. * h / t);
+                res = min(res, 32. * h / t);
                 t += h;
             }
 
@@ -302,7 +301,7 @@ precision highp float;in vec3 i_Position;void main(){gl_Position=vec4(i_Position
         {
             vec3 m = vec3(-1.);
             float t = EPSILON;
-            for (int i = 0; i < 256 && t < MAX_T; i++) {
+            for (int i = 0; i < 172 && t < MAX_T; i++) {
                 vec4 h = map(eye + t * dir);
 
                 if (abs(h.x) < EPSILON * t)
