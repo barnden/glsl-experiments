@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raymarcher</title>
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+
+            background: #16161D;
+            height: 100%;
+            width: 100%;
+
+            display: flex;
+
+            justify-content: center;
+            align-items: center;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="marcher" width="900" height="900"></canvas>
+    <script type="text/x-fragment-shader" id="discard">#version 300 es
+precision highp float;in vec3 i_Position;void main(){gl_Position=vec4(i_Position,1.);}</script>
+    <script type="text/x-fragment-shader" id="frag">
+        #version 300 es
+        precision highp float;
+
+        uniform vec2 u_Resolution;
+        uniform vec4 u_Mouse;
+        uniform float u_Time;
+        uniform int u_Frame;
+
+        out vec4 o_FragColor;
+
+        // Consts
+        #define MAX_ITER 100
+        #define MAX_TIME 20.
+        #define EPSILON  0.0001
+
+        // Raymarching/tracing stuff
+        struct Ray {
+            vec3 origin;
+            vec3 direction;
+        };
+
+        struct Light {
+            vec3 origin;
+            vec3 color;
+        };
+
+        struct Material {
+            vec3 ka; // ambient
+            vec3 kd; // diffuse
+            vec3 ks; // specular
+            vec3 km; // roughness
+            float s; // specular exp
+            float ior; // refract idx 
+        };
+
+        struct Record {
+            bool hit;
+            vec3 point;
+            vec3 normal;
+            Material material;
+        };
+
+        mat3 get_lookat(vec3 eye, vec3 lookat, float r)
+        {
+            // Lookat matrix with z+ towards viewer
+            // Apparently this isn't the standard?
+            vec3 w = normalize(lookat - eye);
+            vec3 u = normalize(cross(w, vec3(cos(r), sin(r), 0.)));
+
+            return mat3(u, cross(u, w), w);
+        }
+
+        Ray primaryRay(vec3 eye, vec3 ta, float fovy, float focalDistance)
+        {
+            // Perspective
+            mat3 lookat = get_lookat(eye, ta, 0.);
+            vec2 uv = (2. * gl_FragCoord.xy - u_Resolution.xy) / u_Resolution.xy * tan(radians(fovy) / 2.);
+
+            return Ray(
+                eye,
+                lookat * normalize(vec3(uv, focalDistance))
+            );
+        }
+
+        // SDF Primitives
+        float sd_sphere(vec3 p, float r) { return length(p) - r; }
+        float sd_box(vec3 p, vec3 b) {
+            vec3 q = abs(p) - b;
+            return length(max(q, 0.)) + min(max(q.x, max(q.y, q.z)), 0.);
+        }
+
+        // SDF Operations
+        vec2 sd_map(vec3 p);
+        vec3 get_normal(vec3 p)
+        {
+            vec2 e = vec2(1., -1.) * EPSILON;
+            return normalize(e.xyy * sd_map(p + e.xyy).x + e.yyx * sd_map(p + e.yyx).x + e.yxy * sd_map(p + e.yxy).x + e.xxx * sd_map(p + e.xxx).x);
+        }
+
+        float op_round(float d, float r) { return d - r; }
+
+        // Transform
+        vec3 op_tx(vec3 pos, mat4 t) { return (inverse(t) * vec4(pos, 1.)).xyz; }
+
+        // Rotation
+        vec3 op_rz(vec3 pos, float deg)
+        {
+            // column major
+            mat4 rot = mat4(
+                vec4(cos(deg), -sin(deg), 0., 0.),
+                vec4(sin(deg), cos(deg),  0., 0.),
+                vec4(0., 0., 1., 0.),
+                vec4(0., 0., 0., 1.)
+            );
+
+            return op_tx(pos, rot);
+        }
+
+        vec3 op_ry(vec3 pos, float deg)
+        {
+            // column major
+            mat4 rot = mat4(
+                vec4(cos(deg), 0., sin(deg), 0.),
+                vec4(0., 1., 0., 0.),
+                vec4(-sin(deg), 0., cos(deg), 0.),
+                vec4(0., 0., 0., 1.)
+            );
+
+            return op_tx(pos, rot);
+        }
+
+        vec3 op_rx(vec3 pos, float deg)
+        {
+            // column major
+            mat4 rot = mat4(
+                vec4(1., 0., 0., 0.),
+                vec4(0., cos(deg), -sin(deg), 0.),
+                vec4(0., sin(deg), cos(deg), 0.),
+                vec4(0., 0., 0., 1.)
+            );
+
+            return op_tx(pos, rot);
+        }
+
+        void emplace(inout vec2 rec, float d, float idx) { if (rec.x < d) rec = vec2(d, idx); }
+
+        vec2 sd_map(vec3 p) {
+            vec2 rec = vec2(MAX_TIME, 0.);
+
+            emplace(rec, sd_sphere(p, .1), 1.);
+
+            float sphere = sd_sphere(p, .3);
+            float cube = sd_box(p, vec3(.25));
+            float smcube = op_round(sd_box(p, vec3(.18)), .05);
+
+            rec.x = mix(cube, sphere, smoothstep(0., 1., cos(.5 * u_Time)));
+            rec.y = 1.;
+
+            return rec;
+        }
+
+        Material get_material(float idx) {
+            if (idx > 0.5)
+                return Material(
+                    vec3(.1),
+                    vec3(.23, .5, .23),
+                    vec3(1.),
+                    vec3(.1, .4, .1),
+                    100.,
+                    1.
+                );
+            return Material(vec3(0.), vec3(0.), vec3(0.), vec3(0.), 0., 1.);
+        }
+
+        Record cast_ray(Ray ray)
+        {
+            float t = EPSILON;
+            float midx = 0.;
+            vec3 p;
+            for (int i = 0; i < MAX_ITER && t < MAX_TIME; i++)
+            {
+                p = ray.origin + ray.direction * t;
+                vec2 h = sd_map(p);
+                midx = h.y;
+
+                if (abs(h.x) < EPSILON)
+                    break;
+
+                t += h.x;
+            }
+
+            if (t < MAX_TIME)
+                return Record(true, p, get_normal(p), get_material(midx));
+
+            return Record(false, vec3(0.), vec3(0.), get_material(0.));
+        }
+        #define NUM_LIGHTS 2
+        // Data structures
+        const Light lights[NUM_LIGHTS] = Light[NUM_LIGHTS](
+            Light(vec3(0., 3., -2.), vec3(.2)),
+            Light(vec3(-2., 1., 4.), vec3(.5))
+        );
+
+        void main()
+        {
+            vec3 lookat = vec3(0.);
+
+            vec3 eye = vec3(0., 0., 1.);
+            Ray ray = primaryRay(eye, lookat, -90., 2.);
+
+            vec2 angle = 6.2831 * u_Mouse.z * (u_Mouse.xy / u_Resolution.xy);
+            ray.origin = op_rx(op_ry(ray.origin, -angle.y), angle.x);
+            ray.direction = op_rx(op_ry(ray.direction, -angle.y), angle.x);
+
+            Record rec = cast_ray(ray);
+
+            vec3 col = vec3(.0833, .55, .75) - .5 * ray.direction.x;
+
+            if (!rec.hit) {
+                o_FragColor = vec4(pow(col, vec3(.4545)), 1.);
+                return;
+            }
+
+            col = rec.material.ka;
+
+            for (int i = 0; i < NUM_LIGHTS; i++) {
+                // Blinn-Phong Reflection
+                vec3 L = lights[i].origin - rec.point;
+                vec3 R = normalize(reflect(L, rec.normal));
+
+                vec3 diffuse = rec.material.kd * max(0., dot(L, rec.normal));
+                vec3 specular = rec.material.ks * pow(max(0., dot(R, -ray.direction)), rec.material.s);
+
+                col += lights[i].color * (diffuse + specular);
+            }
+
+            o_FragColor = vec4(col, 1.);
+        }
+    </script>
+    <script type="module" src="marcher.js"></script>
+</body>
+
+</html>
