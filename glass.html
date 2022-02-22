@@ -46,6 +46,7 @@ precision highp float;in vec3 i_Position;void main(){gl_Position=vec4(i_Position
         #define EPSILON  0.0001
         #define PI 3.141592653
         #define TAU 6.283185307
+        #define RAY_INVERSION 2
 
         // Misc
         float length2(vec2 p) { return dot(p, p); }
@@ -80,9 +81,9 @@ precision highp float;in vec3 i_Position;void main(){gl_Position=vec4(i_Position
         struct Material {
             vec3 ka; // color of ambient
             vec3 kd; // color of diffuse
-            vec3 ks; // color of specular
-            vec3 kr; // color of reflection
-            vec3 kt; // color of refraction
+            float ks; // intensity of specular
+            float kr; // reflection mix
+            float kt; // refraction mix
             int scatter; // type of light scattering
             float m; // roughness (beckmann)
             float ior; // refract idx
@@ -125,6 +126,11 @@ precision highp float;in vec3 i_Position;void main(){gl_Position=vec4(i_Position
 
         // SDF Operations
         float op_round(float d, float r) { return d - r; }
+        float op_smunion(float d1, float d2, float k)
+        {
+            float h = clamp(.5 + .5 * (d2 - d1) / k, 0., 1.);
+            return mix(d2, d1, h) - k * h * (1. - h);
+        }
 
         // Transform
         vec3 op_tx(vec3 pos, mat4 t) { return (inverse(t) * vec4(pos, 1.)).xyz; }
@@ -175,17 +181,18 @@ precision highp float;in vec3 i_Position;void main(){gl_Position=vec4(i_Position
 
             rec.x = dot(p + vec3(0., 3., 0.), normalize(vec3(0., 1., 1.)));
             emplace(rec, dot(p + vec3(0., 5., 0.), normalize(vec3(0., 5., 0.))), 1.);
-            emplace(rec, sd_sphere(p + vec3(.25, .25, -.5), .125), 3.);
-            emplace(rec, sd_sphere(p + vec3(0., -.5, .2), .125), 3.);
+            emplace(rec, sd_sphere(p + vec3(0., 0., .5), .125), 4.);
 
-            p = op_rx(op_ry(p, -angle.y), angle.x);
+            vec3 q = op_rx(op_ry(p, -angle.y), angle.x);
 
-            float sphere = sd_sphere(p, .3);
-            float cube = sd_box(p, vec3(.25));
-            float smcube = op_round(sd_box(p, vec3(.18)), .05);
+            float sphere = sd_sphere(q, .3);
+            float cube = sd_box(q, vec3(.15));
 
-            //emplace(rec, mix(cube, sphere, smoothstep(0., 1., cos(.5 * u_Time))), 2.);
-            emplace(rec, cube, 2.);
+            emplace(rec, op_smunion(
+                mix(sphere, cube, smoothstep(-1., 1., cos(.5 * u_Time))),
+                sd_sphere(p + .4 * vec3(sin(u_Time)) * vec3(1., -1., 1.), .1),
+                .4
+            ), 2.);
 
             return rec;
         }
@@ -198,13 +205,25 @@ precision highp float;in vec3 i_Position;void main(){gl_Position=vec4(i_Position
 
         Material get_material(float idx)
         {
+            if (idx > 3.5)
+                return Material(
+                    vec3(.2),
+                    vec3(.23, .42, .26),
+                    .2,
+                    .8,
+                    0.,
+                    METAL,
+                    1.,
+                    2.5
+                );
+
             if (idx > 2.5)
                 return Material(
                     vec3(.2),
                     vec3(.0),
-                    vec3(.0),
-                    vec3(.8),
-                    vec3(0.),
+                    0.,
+                    .8,
+                    0.,
                     METAL,
                     1.,
                     2.5
@@ -212,41 +231,40 @@ precision highp float;in vec3 i_Position;void main(){gl_Position=vec4(i_Position
 
             if (idx > 1.5)
                 return Material(
-                    vec3(.1),
-                    vec3(.53, .23, .43),
-                    vec3(.8),
-                    vec3(.3),
-                    vec3(.1),
+                    vec3(0.05),
+                    vec3(0.),//vec3(.53, .23, .43),
+                    .8,
+                    .7,
+                    .7,
                     DIELECTRIC,
-                    .015,
-                    1.562 // approx ior for glass
+                    .025,
+                    1.52 // approx ior for glass
                 );
 
             if (idx > 0.5)
                 return Material(
                     vec3(.12),
                     vec3(.2),
-                    vec3(0.),
-                    vec3(0.),
-                    vec3(0.),
+                    0.,
+                    0.,
+                    0.,
                     LAMBERTIAN,
                     1.,
                     2.5
                 );
 
-            return Material(vec3(0.), vec3(0.), vec3(0.), vec3(0.), vec3(0.), LAMBERTIAN, 0., 1.);
+            return Material(vec3(0.), vec3(0.), 0., 0., 0., LAMBERTIAN, 0., 1.);
         }
 
         Record cast_ray(Ray ray)
         {
             float t = EPSILON;
-            float midx = 0.;
+            vec2 h;
             vec3 p;
             for (int i = 0; i < MAX_ITER && t < MAX_TIME; i++)
             {
                 p = ray.origin + ray.direction * t;
-                vec2 h = sd_map(p);
-                midx = h.y;
+                h = sd_map(p);
 
                 if (abs(h.x) < EPSILON)
                     break;
@@ -255,7 +273,7 @@ precision highp float;in vec3 i_Position;void main(){gl_Position=vec4(i_Position
             }
 
             if (t < MAX_TIME)
-                return Record(true, p, get_normal(p), get_material(midx));
+                return Record(true, p, get_normal(p), get_material(h.y));
 
             return Record(false, vec3(0.), vec3(0.), get_material(0.));
         }
@@ -295,56 +313,71 @@ precision highp float;in vec3 i_Position;void main(){gl_Position=vec4(i_Position
         // TODO: Make this work with multiple light sources
         const Light sun = Light(vec3(-1.25, 1.2, 2.), vec3(.64, .59, .54));
 
-
-        bool lambertian(inout Ray ray, Record rec, inout vec3 attenuation)
+        int lambertian(inout Ray ray, Record rec, inout vec3 attenuation)
         {
             ray = Ray(rec.point + rec.normal * EPSILON, normalize(rec.normal + rand_sphere(rec.point)));
 
             if (length(rec.material.kr) < EPSILON)
-                return false;
+                return 0;
 
-            attenuation *= rec.material.kr;
+            attenuation *= rec.material.kd;
 
-            return true;
+            return 1;
         }
 
-        bool metal(inout Ray ray, Record rec, inout vec3 attenuation)
+        int metal(inout Ray ray, Record rec, inout vec3 attenuation)
         {
             ray = Ray(rec.point + rec.normal * EPSILON, normalize(reflect(ray.direction, rec.normal)));
             attenuation *= rec.material.kr;
 
-            if (length(rec.material.kr) < EPSILON)
-                return false;
+            if (length(rec.material.kr) < EPSILON || dot(ray.direction, rec.normal) < 0.)
+                return 0;
 
-            return dot(ray.direction, rec.normal) > 0.;
+            return 1;
         }
 
-        bool dielectric(inout Ray ray, Record rec, inout vec3 attenuation)
+        int dielectric(inout Ray ray, Record rec, inout vec3 attenuation)
         {
-            vec3 N = rec.normal;
-            vec3 R = normalize(reflect(ray.direction, N));
-            float DN = dot(ray.direction, N);
+            vec3 normal = rec.normal;
 
-            float snell = rec.material.ior;
-            float angle = rec.material.ior * DN;
+            float ior;
+            float reflect_prob = 1.;
+            float cosine = dot(normalize(ray.direction), rec.normal);
 
-            if (DN > 0.) {
-                N *= -1.;
+            if (dot(ray.direction, rec.normal) > 0.) {
+                normal *= -1.;
+                ior = rec.material.ior;
             } else {
-                snell = 1. / rec.material.ior;
-                angle *= -1.;
+                ior = 1. / rec.material.ior;
+                cosine *= -1.;
             }
 
-            // TODO: Finish
-            // vec3 refraction = refract();
+            vec3 reflected = normalize(reflect(ray.direction, rec.normal));
+            vec3 refracted = normalize(refract(ray.direction, normal, ior));
+            if (length2(refracted) > EPSILON) {
+                float r0 = (rec.material.ior - 1.) / (rec.material.ior + 1.);
+                reflect_prob = schlick(r0 * r0, cosine);
+            }
 
-            return true;
+            if (rand_interval(ray.direction.xy) < reflect_prob || dot(reflected, refracted) < 0.) {
+                ray = Ray(rec.point + rec.normal * EPSILON, reflected);
+                attenuation *= rec.material.kr;
+                return 1;
+            }
+
+            ray = Ray(rec.point + normal * EPSILON, refracted);
+            attenuation *= rec.material.kt;
+
+            return RAY_INVERSION;
         }
 
-        bool get_scatter(inout Ray ray, Record rec, inout vec3 attenuation)
+        int get_scatter(inout Ray ray, Record rec, inout vec3 attenuation)
         {
             if (rec.material.scatter == LAMBERTIAN)
                 return lambertian(ray, rec, attenuation);
+
+            if (rec.material.scatter == DIELECTRIC)
+                return dielectric(ray, rec, attenuation);
 
             return metal(ray, rec, attenuation);
         }
@@ -359,10 +392,7 @@ precision highp float;in vec3 i_Position;void main(){gl_Position=vec4(i_Position
             vec3 col = vec3(0.);
             vec3 attenuation = vec3(1.);
 
-            for (int i = 0; i < 41; i++) {
-                if (!rec.hit)
-                    break;
-
+            for (int i = 0; i < 8; i++) {
                 vec3 local_color = rec.material.ka;
 
                 vec3 L = sun.origin - rec.point;
@@ -378,13 +408,19 @@ precision highp float;in vec3 i_Position;void main(){gl_Position=vec4(i_Position
                 float LN = dot(L, N);
 
                 vec3 diffuse = rec.material.kd * max(0., LN);
-                vec3 specular = rec.material.ks * cook_torrance(L, N, E, rec.material.ior, 1., rec.material.m);
+                float specular = rec.material.ks * cook_torrance(L, N, E, rec.material.ior, 1., rec.material.m);
                 local_color += sun.color * (diffuse + specular);
 
                 col += attenuation * local_color;
+                int scatter = get_scatter(ray, rec, attenuation);
 
-                get_scatter(ray, rec, attenuation);
+                if (scatter < 1 || length2(attenuation) < EPSILON)
+                    break;
+
                 rec = cast_ray(ray);
+
+                if (!rec.hit)
+                    break;
             }
 
             return col;
