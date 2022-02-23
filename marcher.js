@@ -102,4 +102,4 @@ class Marcher {
     }
 }
 
-const raymarcher = new Marcher()
+export { Marcher }
