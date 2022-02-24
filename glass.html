@@ -30,10 +30,10 @@
 precision highp float;in vec3 i_Position;void main(){gl_Position=vec4(i_Position,1.);}</script>
     <script type="module" src="marcher.js"></script>
     <script type="module">
-        import { Marcher } from "./marcher.js"
+        import { Marcher } from "./js/marcher.js"
 
         let raymarcher
-        fetch('./glass.fs')
+        fetch('./shaders/glass.fs')
             .then(res => res.text())
             .then(shdr => {
                 // FIXME: This is very bad.

@@ -9,9 +9,9 @@ uniform int u_Frame;
 out vec4 o_FragColor;
 
 // Consts
-#define MAX_ITER                100
-#define MAX_TIME                20.
-#define EPSILON                 0.0001
+#define MAX_ITER 100
+#define MAX_TIME 20.
+#define EPSILON  0.0001
 
 #define PI  3.141592653
 #define TAU 6.283185307
@@ -177,11 +177,7 @@ Material get_material(float idx)
         return Material(vec3(.2), vec3(.0), 0., .8, 0., 1., 2.5, METAL);
 
     if (idx > 1.5)
-        return Material(vec3(0.05),
-                        vec3(0.), // vec3(.53, .23, .43),
-                        .8, .7, .7, .025,
-                        1.52, // approx ior for glass
-                        DIELECTRIC);
+        return Material(vec3(0.05), vec3(0.), .8, .7, .7, .025, 1.52, DIELECTRIC);
 
     if (idx > 0.5)
         return Material(vec3(.12), vec3(.2), 0., 0., 0., 1., 2.5, LAMBERTIAN);
@@ -267,9 +263,6 @@ int metal(inout Ray ray, Record rec, inout vec3 attenuation)
               normalize(reflect(ray.direction, rec.normal)));
     attenuation *= rec.material.kr;
 
-    if (length(rec.material.kr) < EPSILON || dot(ray.direction, rec.normal) < 0.)
-        return 0;
-
     return 1;
 }
 
@@ -296,11 +289,8 @@ int dielectric(inout Ray ray, Record rec, inout vec3 attenuation)
         reflect_prob = schlick(r0 * r0, cosine);
     }
 
-    if (rand_interval(ray.direction.xy) < reflect_prob) {
-        ray = Ray(rec.point + rec.normal * EPSILON, reflected);
-        attenuation *= rec.material.kr;
-        return 1;
-    }
+    if (rand_interval(ray.direction.xy + u_Time) < reflect_prob)
+        return metal(ray, rec, attenuation);
 
     ray = Ray(rec.point - EPSILON * 10. * normal, refracted);
     attenuation *= rec.material.kt;
