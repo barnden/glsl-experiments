@@ -18,7 +18,7 @@ out vec4 o_FragColor;
 
 #define RAY_INVERSION 2
 
-#define SKY pow(vec3(.0833, .55, .75) - .5 * ray.direction.y, vec3(.4545))
+#define SKY vec3(.1833, .55, .75) - .5 * clamp(ray.direction.y, 0., 1.)
 
 // Misc
 float length2(vec2 p) { return dot(p, p); }
@@ -138,6 +138,18 @@ void emplace(inout vec2 rec, float d, float idx)
         rec = vec2(d, idx);
 }
 
+float elastic(float t)
+{
+    return t < .5
+               ? .5 * sin(13. * PI * t) * pow(2., 10. * (2. * t - 1.))
+               : .5 * sin(-6.5 * PI * ((2. * t - 1.) + 1.)) * pow(2., -10. * (2. * t - 1.)) + 1.;
+}
+
+float elasticstep(float begin, float end, float t)
+{
+    return elastic(smoothstep(begin, end, t));
+}
+
 vec2 sd_map(vec3 p)
 {
     vec2 angle = TAU * mix(.5 * vec2(cos(u_Time / 5.), sin(u_Time / 7.)) + vec2(.335, .465), u_Mouse.z * (u_Mouse.yx / u_Resolution.yx), u_Mouse.z);
@@ -154,7 +166,7 @@ vec2 sd_map(vec3 p)
 
     emplace(
         rec,
-        op_smunion(mix(sphere, cube, smoothstep(-1., 1., cos(.5 * u_Time))),
+        op_smunion(mix(sphere, cube, elasticstep(-1., 1., cos(.5 * u_Time))),
                    sd_sphere(p + .4 * vec3(sin(u_Time)) * vec3(1., -1., 1.), .1),
                    .4),
         2.);
@@ -164,23 +176,29 @@ vec2 sd_map(vec3 p)
 
 vec3 get_normal(vec3 p)
 {
-    vec2 e = vec2(1., -1.) * EPSILON;
-    return normalize(e.xyy * sd_map(p + e.xyy).x + e.yyx * sd_map(p + e.yyx).x + e.yxy * sd_map(p + e.yxy).x + e.xxx * sd_map(p + e.xxx).x);
+    // From calcNormal on https://www.shadertoy.com/view/3lsSzf
+    // Originally by tdhooper and klems
+    vec3 n = vec3(0.0);
+    for (int i = 0; i < 4; i++) {
+        vec3 e = 0.5773 * (2.0 * vec3((((i + 3) >> 1) & 1), ((i >> 1) & 1), (i & 1)) - 1.0);
+        n += e * sd_map(p + 0.001 * e).x;
+    }
+    return normalize(n);
 }
 
 Material get_material(float idx)
 {
     if (idx > 3.5)
-        return Material(vec3(.2), vec3(.23, .42, .26), .2, 0., 0., .05, 2.5, METAL);
+        return Material(vec3(.075), vec3(.12, .775, .135), .2, 0., 0., .05, 2.5, METAL);
 
     if (idx > 2.5)
-        return Material(vec3(.2), vec3(.0), 0., .8, 0., 1., 2.5, METAL);
+        return Material(vec3(.0), vec3(.0), 0., .8, 0., 1., 2.5, METAL);
 
     if (idx > 1.5)
-        return Material(vec3(0.05), vec3(0.), .8, .7, .7, .025, 1.52, DIELECTRIC);
+        return Material(vec3(0.025), vec3(0.), .8, .7, .7, .025, 1.52, DIELECTRIC);
 
     if (idx > 0.5)
-        return Material(vec3(.12), vec3(.2), 0., 0., 0., 1., 2.5, LAMBERTIAN);
+        return Material(vec3(.085), vec3(.42, .31, .215), 0., 0., 0., 1., 2.5, LAMBERTIAN);
 
     return Material(vec3(0.), vec3(0.), 0., 0., 0., 0., 1., LAMBERTIAN);
 }
@@ -289,7 +307,7 @@ int dielectric(inout Ray ray, Record rec, inout vec3 attenuation)
         reflect_prob = schlick(r0 * r0, cosine);
     }
 
-    if (rand_interval(ray.direction.xy + u_Time) < reflect_prob)
+    if (rand_interval(ray.direction.xy) < reflect_prob)
         return metal(ray, rec, attenuation);
 
     ray = Ray(rec.point - EPSILON * 10. * normal, refracted);
@@ -315,13 +333,13 @@ vec3 compute_ray_color(Ray ray, Record rec)
         return SKY;
 
     vec3 color = rec.material.ka;
-    vec3 L = sun.origin - rec.point;
+    vec3 L = normalize(sun.origin - rec.point);
     vec3 N = rec.normal;
 
     Ray shadow = Ray(rec.point + N * EPSILON, normalize(L));
     if (cast_ray(shadow, false).hit) {
         color += .1 * rec.material.kd * rec.material.ka;
-        return color;
+        return color * .1;
     }
 
     vec3 E = normalize(ray.origin - rec.point);
@@ -362,7 +380,10 @@ void main()
 {
     vec3 lookat = vec3(0., 0., -1.);
     vec3 eye = vec3(0., 0., 1.);
-    Ray ray = primaryRay(eye, lookat, 90., 1.5);
+    Ray ray = primaryRay(eye, lookat, 45., .75);
 
-    o_FragColor = vec4(trace_ray(ray), 1.);
+    vec3 color = trace_ray(ray);
+    color = pow(color, vec3(1. / 2.2));
+
+    o_FragColor = vec4(color, 1.);
 }
