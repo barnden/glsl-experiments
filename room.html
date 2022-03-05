@@ -28,7 +28,6 @@
     <canvas id="marcher" width="900" height="900"></canvas>
     <script type="text/x-fragment-shader" id="discard">#version 300 es
 precision highp float;in vec3 i_Position;void main(){gl_Position=vec4(i_Position,1.);}</script>
-    <script type="module" src="marcher.js"></script>
     <script type="module">
         import { Marcher } from "./js/marcher.js"
 
