@@ -1,16 +1,17 @@
 class WebGL2Renderer {
-    constructor(canvas, target_frame_rate, gl2options) {
+    constructor(canvas, targetFPS, gl2options) {
         if (typeof canvas === "string")
             this.canvas = document.getElementById(canvas)
         else
             this.canvas = canvas
 
         this.gl = this.canvas.getContext("webgl2", gl2options)
-        this.frameTime = 1000 / target_frame_rate
+        this.frameTime = 1000 / targetFPS
         this.frameCount = 0
         this.time = 0
         this.lastFrameTime = performance.now()
         this.startTime = this.lastFrameTime
+        this.pauseTime = false
 
         if (this.gl === null)
             throw "[WebGL2Renderer] WebGL2 context is not supported by the browser."
@@ -99,8 +100,11 @@ class WebGL2Renderer {
         for (let hook of this.renderHooks)
             hook(this.gl);
 
-        this.time = (now - this.startTime) / 1000
+        if (!this.pauseTime)
+            this.time += delta / 1000
+
         this.frameCount++
+        this.lastFrameTime = now
 
         requestAnimationFrame(this.render)
     }

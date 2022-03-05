@@ -44,6 +44,7 @@ class Marcher {
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
         this.setupMouseControls()
+        this.setupKeyboardControls()
     }
 
     setupMouseControls() {
@@ -86,6 +87,13 @@ class Marcher {
         this.renderer.canvas.addEventListener("touchstart", pressHandler)
         this.renderer.canvas.addEventListener("touchmove", moveHandler)
         document.addEventListener("touchend", liftHandler)
+    }
+
+    setupKeyboardControls() {
+        document.addEventListener("keydown", e => {
+            if (e.key == 'p')
+                this.renderer.pauseTime ^= true
+        })
     }
 
     render = gl => {
