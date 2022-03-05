@@ -74,12 +74,12 @@ struct Record {
 mat3 get_lookat(vec3 eye, vec3 lookat, float r)
 {
     vec3 w = normalize(lookat - eye);
-    vec3 u = normalize(cross(vec3(cos(r), sin(r), 0.), w));
+    vec3 u = normalize(cross(w, vec3(sin(r), cos(r), 0.)));
 
-    return mat3(cross(u, w), u, w);
+    return mat3(u, cross(u, w), w);
 }
 
-Ray primaryRay(vec3 eye, vec3 ta, float fovy, float focalDistance)
+Ray get_primary_ray(vec3 eye, vec3 ta, float fovy, float focalDistance)
 {
     // Perspective
     mat3 lookat = get_lookat(eye, ta, 0.);
@@ -167,7 +167,7 @@ vec2 sd_map(vec3 p)
     emplace(
         rec,
         op_smunion(mix(sphere, cube, elasticstep(-1., 1., cos(.5 * u_Time))),
-                   sd_sphere(p + .4 * vec3(sin(u_Time)) * vec3(1., -1., 1.), .1),
+                   sd_sphere(p + .4 * vec3(sin(u_Time)) * vec3(-1., -1., 1.), .1),
                    .4),
         2.);
 
@@ -260,7 +260,7 @@ float cook_torrance(vec3 L, vec3 N, vec3 E, float ior1, float ior2, float m)
 }
 
 // TODO: Make this work with multiple light sources
-const Light sun = Light(vec3(-1.25, 1.2, 2.), vec3(.64, .59, .54));
+const Light sun = Light(vec3(1.25, 1.2, 2.), vec3(.64, .59, .54));
 
 int lambertian(inout Ray ray, Record rec, inout vec3 attenuation)
 {
@@ -380,7 +380,7 @@ void main()
 {
     vec3 lookat = vec3(0., 0., -1.);
     vec3 eye = vec3(0., 0., 1.);
-    Ray ray = primaryRay(eye, lookat, 45., .75);
+    Ray ray = get_primary_ray(eye, lookat, 45., .75);
 
     vec3 color = trace_ray(ray);
     color = pow(color, vec3(1. / 2.2));
